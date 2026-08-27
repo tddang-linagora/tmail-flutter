@@ -1,325 +1,232 @@
-# Phase 1 — Prefetch and cache the Drive access token
+# Phase 1 — Prefetch, store, obtain
 
-## Context links
-
-- Overview: [plan.md](plan.md)
-- Decision record: `docs/adr/0106-prefetch-and-refresh-the-drive-access-token.md`
-- ADR-0095 — external drive file picker integration (the flow this phase speeds up)
-- ADR-0092 — Riverpod 3 upgrade (freezes new `appProviderContainer` call sites)
+Diagrams for the whole flow: [plan.md § Flows](plan.md#flows).
 
 ## Overview
 
-- **Priority:** High — this is the bulk of the user-visible latency win.
+- **Priority:** High
 - **Status:** Not started
-- **Branch:** `feature/TF-4713-1-prefetch-drive-access-token`
+- **Depends on:** nothing
 
-Exchange the OIDC `id_token` for a Drive access token as soon as the Drive
-platform URI becomes available, cache it in memory for the session, and consume
-the cached value when the picker opens.
+Introduce `WorkplaceTokenSession` and abstract `WorkplaceTokenStore`, implement
+`InMemoryWorkplaceTokenStore` (RAM + one in-flight Future), prefetch when the
+Drive URI becomes available, and consume the cache from `_fetchIntent`.
 
-The token lifecycle lives entirely inside the `workplace` package.
-
-## Key insights
-
-### The flow today
-
-- `WorkplaceComposerAttachmentExtension._fetchIntent` is the only caller of the
-  token exchange. It reads the OIDC token, exchanges it, then creates the intent
-  — all inside the modal's lazy `intentLoader`, i.e. after the tap.
-- The exchange needs only the platform URL and the OIDC `id_token`. Both exist
-  well before any composer is opened.
-- `WorkplaceDataSourceImpl.exchangeToken` already parses the full
-  `WorkplaceExchangeTokenResponse` and then throws away everything except
-  `accessToken`.
-
-### The ownership boundary
-
-- The extension already receives both exchange inputs from the app tree:
-  `workplaceUri` (`ValueListenable<Uri?>`) and `oidcTokenGetter`.
-- It already owns its datasource, repository and interactors as private fields.
-  The token store is the same kind of private detail and belongs beside them.
-- `lib` therefore gains no token type, no store, no provider, no `clear()` call.
-  Its only coupling to the feature stays the registry it already builds.
-
-### Invalidation comes for free
-
-- `driveAttachmentUriValueProvider` fuses the three signals that decide whether
-  Drive is usable — fqdn from OIDC userinfo, ecosystem capability flag, user
-  preference — into one `ValueNotifier<Uri?>`.
-- Logout, account switch, OIDC userinfo failure and the preference toggle all
-  drive it to null already.
-- A store that listens to it therefore needs no new invalidation hook.
-
-### Warm-up timing
-
-- The registry provider is `keepAlive` but lazy. Its only consumers are
-  `composer_view.dart:496` and `external_attachment_composer_button.dart:23` —
-  both composer-open paths.
-- One line in `DriveAttachmentEcosystemHandler.onEcosystemLoaded` reading the
-  registry provider moves the warm-up to session load. That handler already runs
-  on the session fan-out path (`_setUpComponentsFromSession` →
-  `loadLinagoraEcosystem`).
-
-### Teardown
-
-- The registry provider rebuilds when `driveAttachmentUriValueProvider` changes,
-  orphaning the previous extension along with its listener and cached token.
-- `ComposerAttachmentPlugin` has no teardown hook today. Adding one is a
-  registry-lifecycle concern, not a token concern.
+No refresh and no 401 retry in this phase.
 
 ## Requirements
 
-### Functional
-
-- A cached token is reused across taps for the lifetime of the platform URI.
-- A tap arriving while a prefetch is still in flight awaits that prefetch rather
-  than starting a second exchange.
-- A failed prefetch is silent — no toast, no retry loop. The next `get` retries.
-- A change of platform URI discards the cache.
-- The URI going null clears the cache.
-- Disposing the registry disposes the extension, which detaches the listener and
-  drops the token.
-- Behaviour with a missing OIDC token is unchanged (same `StateError`).
-
-### Non-functional
-
-- Memory only. Nothing persisted, nothing logged that contains a token value.
-- `lib` never names a workplace token, store or refresh — no type, no provider,
-  no call. `grep -rn "DriveAccessTokenStore\|WorkplaceToken" lib/` returns nothing.
-- No change to the modal, the handshake, or any composer code.
-- Everything removable by deleting files plus reverting one signature widening.
+- Functional: URI non-null prefetches once; tap `obtain()` is a cache hit or
+  joins the in-flight prefetch; two concurrent `obtain()` on an empty store
+  issue one exchange; URI null clears; failed prefetch is silent and the next
+  `obtain()` retries; native and web both prefetch at session load, not at
+  first tap.
+- Non-functional: memory only; never log token values; no TTL / `expiresAt`;
+  no generation counter / `force` / `_isRefreshing`; `lib/` names no token
+  type or store.
 
 ## Architecture
 
+Seed for a cache hit is **platform URL only**. Do not seed on OIDC `id_token`
+— an OIDC refresh must not drop a live Drive token. Invalidation is URI → null
+(logout, account switch, capability off, user preference off).
+
+Single-flight is one field:
+
 ```
-lib/                                  workplace/
-────────────────────────────────      ──────────────────────────────────────
-registry provider                     WorkplaceComposerAttachmentExtension
-  builds extension ─────────────────▶   └─ owns DriveAccessTokenStore
-  passes workplaceUri + oidcGetter           ├─ listens to workplaceUri
-  ref.onDispose(registry.dispose) ─▶         │    non-null → prefetch()
-                                             │    null     → clear()
-ecosystem handler                            ├─ get() cached | in-flight | exchange
-  setEnabled(...)                            └─ dispose() removeListener + clear
-  read(registryProvider)   ← warm-up
+if (cached session for this URL) return it
+if (_inFlight != null) return _inFlight
+_inFlight = exchange(...).then(write cache).whenComplete(clear slot if still ours)
 ```
 
-`_fetchIntent` becomes `store.get(uri)` → `_createIntent(POST /intents)`.
+`identical(_inFlight, started)` on write / slot-clear is ownership of the
+current Future, not a scheduler flag. Needed because URI can go null then
+non-null while a prefetch is in flight (account switch / preference toggle).
+Do not add `_ongoingSeed`, generation, or `force`.
+
+The store does not listen to the URI. The extension does:
+
+```
+workplaceUri.addListener(_onUriChanged)
+_onUriChanged:
+  uri == null → store.clear()
+  else        → store.prime(platformUrl: uri, oidcIdToken: oidcTokenGetter())
+```
+
+Call `_onUriChanged()` once from the constructor so a URI already non-null at
+construct prefetches immediately.
+
+Warm-up: `DriveAttachmentEcosystemHandler.onEcosystemLoaded` already runs on
+session fan-out. After `setEnabled(...)` (so the composite URI is current),
+`read(composerAttachmentExtensionRegistryProvider)` constructs the plugin.
+
+Teardown: `ComposerAttachmentPlugin.dispose()` concrete no-op;
+`ComposerAttachmentExtensionRegistry.dispose()` fans it out; registry provider
+`ref.onDispose(registry.dispose)`. Closing a composer does **not** dispose the
+plugin.
 
 ## Related code files
 
-### Delete first
+Create:
 
-Two orphaned generated files sit in the tree with no source behind them (both
-gitignored, so untracked). `build_runner` and `flutter analyze` trip on them:
+- `workplace/lib/domain/entity/workplace_token_session.dart`
+- `workplace/lib/domain/repository/workplace_token_store.dart`
+- `workplace/lib/data/network/in_memory_workplace_token_store.dart`
+- `workplace/test/data/network/in_memory_workplace_token_store_test.dart`
+
+Modify — `workplace`:
+
+- datasource + impl, repository + impl (`exchangeToken` returns `WorkplaceTokenSession`)
+- `exchange_drive_token_interactor.dart` (keep compiling this phase; delete in Phase 2)
+- `workplace_composer_attachment_extension.dart`
+- `workplace_datasource_impl_test.dart`
+- `workplace_composer_attachment_extension_test.dart`
+
+Modify — `core`:
+
+- `composer_attachment_plugin.dart` — concrete `void dispose() {}`
+- `composer_attachment_extension_registry.dart` — fan out `dispose()`
+
+Modify — `lib` (~3 lines, no token types):
+
+- `composer_attachment_extension_registry_provider.dart` — `ref.onDispose(registry.dispose)`
+- `drive_attachment_ecosystem_handler.dart` — `read` the registry after `setEnabled`
+
+Delete if present (stale generated leftovers):
 
 - `lib/main/providers/workplace/drive_access_token_store_provider.g.dart`
 - `test/main/providers/workplace/drive_access_token_store_provider_test.mocks.dart`
 
-### Create
-
-- `workplace/lib/domain/entity/workplace_token.dart`
-- `workplace/lib/presentation/manager/drive_access_token_store.dart`
-- `workplace/test/presentation/manager/drive_access_token_store_test.dart`
-
-### Modify — `core` (teardown contract)
-
-- `core/lib/presentation/extensions/composer_attachment_plugin.dart`
-- `core/lib/presentation/extensions/composer_attachment_extension_registry.dart`
-
-### Modify — `lib` (2 files, ~3 lines)
-
-- `lib/features/composer/presentation/providers/composer_attachment_extension_registry_provider.dart`
-- `lib/features/mailbox_dashboard/presentation/linagora_ecosystem/drive_attachment_ecosystem_handler.dart`
-
-### Modify — `workplace`
-
-- `workplace/lib/data/datasource/workplace_datasource.dart`
-- `workplace/lib/data/datasource_impl/workplace_datasource_impl.dart`
-- `workplace/lib/data/repository_impl/workplace_repository_impl.dart`
-- `workplace/lib/domain/repository/workplace_repository.dart`
-- `workplace/lib/domain/usecase/exchange_drive_token_interactor.dart`
-- `workplace/lib/domain/state/workplace_intent_state.dart`
-- `workplace/lib/presentation/extension/workplace_composer_attachment_extension.dart`
-- `workplace/test/data/workplace_datasource_impl_test.dart`
-- `workplace/test/presentation/extension/workplace_composer_attachment_extension_test.dart`
-
 ## Implementation steps
 
-1. **Delete the two stale generated files** listed above.
+1. **`WorkplaceTokenSession`** — `accessToken` required; nullable
+   `refreshToken`, `clientId`, `clientSecret`. `canRefresh` true only when all
+   three optionals are non-empty. No `expiresAt`.
 
-2. **Add `WorkplaceToken`.**
-   Fields: `accessToken` (required), nullable `refreshToken`, `clientId`,
-   `clientSecret`. Extends `Equatable`.
-   Factory `WorkplaceToken.fromResponse(WorkplaceExchangeTokenResponse)` — the
-   response already carries all four.
-   `bool get isRefreshable` — true when refresh token, client id and client
-   secret are all present. Unused this phase; it exists so Phase 2 need not
-   touch this file.
+2. **Widen `exchangeToken`** to `Future<WorkplaceTokenSession>` through
+   datasource, repository, and the existing interactor so analyze stays green.
+   Map the four fields from `WorkplaceExchangeTokenResponse`. Do not add
+   `expiresIn` to the response model.
 
-3. **Widen the return type** from `String` to `WorkplaceToken` through the
-   datasource interface, datasource impl, repository interface, repository impl
-   and `ExchangeDriveTokenInteractor`. Rename
-   `ExchangeWorkplaceTokenSuccess.accessToken` to `.token`. No logic changes.
-
-4. **Add `DriveAccessTokenStore`.** Plain Dart — no GetX, no Riverpod, no
-   `BuildContext`.
+3. **Store port + impl.** Inject HTTP:
 
    ```dart
-   DriveAccessTokenStore({
-     required ValueListenable<Uri?> workplaceUri,
-     required ExchangeDriveTokenInteractor exchangeInteractor,
-     required String? Function() oidcTokenGetter,
-   })
+   typedef WorkplaceTokenExchange = Future<WorkplaceTokenSession> Function(
+     Uri platformUrl,
+     String oidcIdToken,
+   );
+
+   class InMemoryWorkplaceTokenStore implements WorkplaceTokenStore {
+     InMemoryWorkplaceTokenStore({required WorkplaceTokenExchange exchange});
+   }
    ```
 
-   Constructor body: `addListener(_onUriChanged)`, then call `_onUriChanged()`
-   once — a URI already non-null at construction must prefetch immediately.
+   Phase 2 adds the `refresh` callback. This phase can take it as optional, or
+   add a dummy that throws — prefer adding the typedef now and passing
+   `_repository.refreshToken` only in Phase 2 so Phase 1 does not invent a
+   refresh method. `recoverAfterUnauthorized` can be on the port from day one
+   and `throw UnimplementedError` in the impl until Phase 2, **or** omitted
+   from the port until Phase 2. Omit it until Phase 2 — do not ship a lying
+   method.
 
-   State: `Uri? _platformUrl`, `WorkplaceToken? _token`,
-   `Future<WorkplaceToken>? _inFlight`.
+   So Phase 1 port is `obtain`, `prime`, `clear` only.
 
-   - `_onUriChanged()` — non-null → `_prefetch(uri)`; null → `clear()`.
-   - `_prefetch(Uri)` — fire-and-forget wrapper over `get`; catches everything
-     and `logWarning`s. Never retries on its own.
-   - `Future<WorkplaceToken> get(Uri platformUrl)` — if `platformUrl` differs
-     from `_platformUrl`, clear first. Then: cached token → in-flight future →
-     start a new exchange. The new exchange is stored in `_inFlight` before it
-     is awaited, and cleared in a `finally`.
-   - `void clear()` — drops all three fields.
-   - `void dispose()` — `removeListener` then `clear()`.
-
-   Move the fold-and-throw body of
-   `WorkplaceComposerAttachmentExtension._exchangeAccessToken` into the store
-   rather than duplicating it, including the null-OIDC-token `StateError`.
-
-5. **Add the teardown contract in `core`.**
-   `ComposerAttachmentPlugin` gains a **concrete no-op** `void dispose() {}` —
-   non-breaking for existing plugins.
-   `ComposerAttachmentExtensionRegistry.dispose()` fans out over `extensions`;
-   drop `const` on its constructor if the analyzer requires it.
-
-6. **The extension owns the store.** Add
-   `late final DriveAccessTokenStore _tokenStore`, assigned in the **constructor
-   body** — not as a lazy initialiser, since the prefetch must start at
-   construction.
-
-   `_fetchIntent` becomes:
+4. **Extension owns the store.** Assign in the constructor body (not `late`
+   lazy — that would defer prefetch to first tap).
 
    ```dart
-   final token = await _tokenStore.get(platformUrl);
-   return _createIntent(platformUrl, token.accessToken,
+   late final WorkplaceTokenStore _tokenStore = InMemoryWorkplaceTokenStore(
+     exchange: _repository.exchangeToken,
+   );
+   ```
+
+   After field init, `addListener(_onUriChanged)` then `_onUriChanged()`.
+
+   `_fetchIntent`:
+
+   ```dart
+   final oidcToken = oidcTokenGetter();
+   if (oidcToken == null) throw StateError('OIDC token is unavailable');
+   final session = await _tokenStore.obtain(
+     platformUrl: platformUrl,
+     oidcIdToken: oidcToken,
+   );
+   return _createIntent(platformUrl, session.accessToken,
        filePickerConfig: filePickerConfig);
    ```
 
-   Add `@override void dispose() => _tokenStore.dispose();`.
-   Delete `_exchangeAccessToken`. Keep `_exchangeTokenInteractor` — the store
-   consumes it now.
+   Delete `_exchangeAccessToken`. Keep the interactor file compiling unused, or
+   stop constructing it if the store talks to the repository directly (preferred:
+   stop constructing it; delete the class in Phase 2 with the unused states).
 
-7. **Registry provider teardown.** Hold the registry in a local, call
-   `ref.onDispose(registry.dispose)`, return it. No other change — no store
-   construction, no new import.
+5. **Plugin `dispose` + registry fan-out + `ref.onDispose`.**
 
-8. **Ecosystem handler warm-up.** Append
-   `appProviderContainer.read(composerAttachmentExtensionRegistryProvider);`
-   to `onEcosystemLoaded`, **after** the existing `setEnabled(...)` call so the
-   composite URI is already correct when the extension is constructed.
-   `onEcosystemCleared` is untouched — the URI going null clears the store.
+6. **Ecosystem handler** — after `setEnabled(...)`:
 
-9. **Run codegen:** `dart run build_runner build --workspace`. Never pass
-   `--delete-conflicting-outputs` in this melos workspace.
+   ```dart
+   appProviderContainer.read(composerAttachmentExtensionRegistryProvider);
+   ```
 
-10. **Tests** — see Success criteria.
+   Do not `read` from `ComposerController.onInit`. Do not `read` at login
+   except via this handler (it already runs on session load).
 
-## Todo list
+7. **Codegen:** `./setup_local prod` from repo root. Not a per-package
+   `build_runner`. Never `--delete-conflicting-outputs`.
 
-- [ ] Delete the two stale `drive_access_token_store_provider` generated files
-- [ ] `WorkplaceToken` entity with `fromResponse` and `isRefreshable`
-- [ ] Widen `exchangeToken` return type through the chain
-- [ ] `ExchangeWorkplaceTokenSuccess.accessToken` → `.token`
-- [ ] `DriveAccessTokenStore` — listener, prefetch / get / clear / dispose, in-flight dedupe
-- [ ] `ComposerAttachmentPlugin.dispose()` + `Registry.dispose()` in `core`
-- [ ] Extension constructs and disposes the store; `_exchangeAccessToken` removed
-- [ ] Registry provider `ref.onDispose(registry.dispose)`
-- [ ] Ecosystem handler warm-up line
-- [ ] `build_runner --workspace`
-- [ ] Store unit tests
-- [ ] Registry provider disposal test
-- [ ] Datasource test updated for `WorkplaceToken`
-- [ ] Extension test: warmed store issues no exchange at tap
-- [ ] `flutter analyze` clean
-- [ ] Manual check on web and one mobile target
+8. **Tests** — see success criteria.
 
 ## Success criteria
 
-Automated:
+Store (fake exchange callback, counting):
 
-- `drive_access_token_store_test.dart` covers:
-  construction with a non-null URI prefetching;
-  cache hit;
-  two concurrent `get`s producing exactly one exchange;
-  `prefetch` swallowing a failure;
-  `get` after a failed prefetch re-exchanging;
-  URI → null clearing;
-  a changed platform URL discarding the cache;
-  `dispose()` detaching the listener.
-- `workplace_composer_attachment_extension_test.dart` asserts a warmed store
-  issues **no** token_exchange request at tap, that `dispose()` reaches the
-  store, and that existing failure propagation is unchanged.
-- `workplace_datasource_impl_test.dart` asserts `refreshToken`, `clientId` and
-  `clientSecret` are parsed onto `WorkplaceToken`.
-- A registry provider test asserts disposing the provider disposes the registry.
-- **Boundary gate:**
-  `grep -rn "DriveAccessTokenStore\|WorkplaceToken\|refreshToken" lib/`
+- First `obtain` → one exchange.
+- Second `obtain`, same URL → still one.
+- Concurrent `obtain` on empty store → one exchange, same session.
+- `prime` with null uri/oidc → zero HTTP, completes.
+- `prime` exchange throws → completes, no throw; next `obtain` starts one new
+  exchange.
+- `clear` then `obtain` → one new exchange.
+- Different `platformUrl` → new exchange, does not join the previous flight.
+- Late completion after `clear` does not restore the dropped session.
+
+Extension:
+
+- Construct with non-null URI → one `prime` / exchange.
+- URI null then set → one exchange; first `_fetchIntent` after that is
+  `/intents` only.
+- Warm store: `_fetchIntent` issues zero `token_exchange`.
+- Existing null-OIDC / exchange-failure / intent-failure tests still hold.
+
+App:
+
+- Registry provider dispose disposes the registry / extension.
+- Boundary gate: `grep -rn "WorkplaceTokenStore\|WorkplaceTokenSession\|InMemoryWorkplaceTokenStore" lib/`
   returns nothing.
-- `flutter analyze`, `flutter test workplace/test`, and
-  `flutter test test/main/providers/workplace test/features/composer` all pass.
 
-Manual, against a Drive-enabled backend (`docs/dev/backend-setup.md`):
+Manual, Drive-enabled backend:
 
-1. Log in, stay on the mailbox list. Logs show one `token_exchange` shortly after
-   the ecosystem loads, with no composer open.
-2. Open a composer, tap Drive. Only `POST /intents` is issued; the skeleton
-   clears noticeably sooner than on `master`.
-3. Tap again — still no second `token_exchange`.
-4. Toggle the Drive preference off then on — cache clears, fresh prefetch fires.
-5. Log out and back in — exactly one new `token_exchange`.
-
-Test on web **and** one mobile target: the modal is a conditional export and the
-two implementations differ.
+1. Log in, stay on mailbox. One `token_exchange` after ecosystem load. No
+   composer open.
+2. Open composer, tap Drive. Only `POST /intents`. Skeleton clears sooner.
+3. Second tap, same composer: still no `token_exchange`.
+4. Second composer, tap Drive: `/intents` only.
+5. Toggle Drive preference off then on: cache clears, one new prefetch.
 
 ## Risk assessment
 
-- **Prefetching for users who never open the picker.** One extra request per
-  session, already gated on the capability flag and the user preference. If it
-  proves unwanted, drop the warm-up line from the ecosystem handler — the
-  extension then prefetches at composer open, still ahead of the tap.
-- **A cached token going stale mid-session** surfaces as the picker's existing
-  generic failure. Today's behaviour never caches, so this is a new failure mode
-  — it is exactly what Phase 2 fixes. Do not ship Phase 1 far ahead of Phase 2.
-- **Eager store construction.** A `late final` lazy initialiser would defer the
-  prefetch to the first `_fetchIntent`, silently erasing the win. Assign in the
-  constructor body and cover it with the construction-time prefetch test.
-- **ADR-0092 freeze** on new `appProviderContainer` call sites. One is added, in
-  a file that already holds two, and it disappears with the feature. Flag it in
-  review rather than working around it.
-- **Signature widening** touches six files across the package. Mechanical, but it
-  is the part of this phase most likely to collide with concurrent Drive work.
-
-## Security considerations
-
-- Token stays in memory, inside the `workplace` package. Nothing reaches Hive, so
-  no ADR-0073 auto-backup exposure and no cache-migration concerns.
-- Never log a token value — log presence and platform host only.
-- Cleared whenever the composite URI goes null, which covers logout, account
-  switch, OIDC userinfo failure, and the user disabling the feature.
-- The app tree never holds a reference to the token, so no accidental widening of
-  its blast radius through `lib`.
-- The platform URI already enforces HTTPS outside debug builds; the store adds no
-  new URL handling.
+- Prefetch for users who never open the picker: one request per session,
+  already gated on capability + preference via the URI. Drop the ecosystem
+  `read` if it proves unwanted — constructor + URI listener still prefetch at
+  first composer that watches the registry, which on web is composer open.
+- Eager construct: assign the store in the constructor body; a `late` lazy
+  field would erase the win.
+- ADR-0092 freeze on new `appProviderContainer` sites: one added in a file
+  that already has them; flag in review.
+- Phase 1 alone makes a stale cached token a new failure mode. Do not ship
+  far ahead of Phase 2.
 
 ## Next steps
 
-- Phase 2 adds the refresh-based recovery on top of the store.
-- Capture one real `/auth/token_exchange` response while testing this phase, to
-  confirm whether the refresh fields are populated before Phase 2 starts.
+Phase 2 adds `refreshToken` on the repository, `recoverAfterUnauthorized`,
+and one `/intents` retry on 401. Capture a real `token_exchange` body while
+testing this phase.
