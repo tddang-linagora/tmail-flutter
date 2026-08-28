@@ -8,11 +8,13 @@ import 'package:flutter/material.dart';
 import 'package:workplace/data/datasource_impl/workplace_datasource_impl.dart';
 import 'package:workplace/data/model/workplace_enums.dart';
 import 'package:workplace/data/model/workplace_intent_request.dart';
+import 'package:workplace/data/network/in_memory_workplace_token_store.dart';
 import 'package:workplace/data/repository_impl/workplace_repository_impl.dart';
 import 'package:workplace/domain/entity/workplace_action_config.dart';
 import 'package:workplace/domain/entity/workplace_intent.dart';
 import 'package:workplace/domain/entity/workplace_theme.dart';
 import 'package:workplace/domain/exceptions/workplace_exceptions.dart';
+import 'package:workplace/domain/repository/workplace_token_store.dart';
 import 'package:workplace/presentation/model/drive_pick_state.dart';
 import 'package:workplace/presentation/model/drive_picker_session.dart';
 import 'package:workplace/domain/state/workplace_intent_state.dart';
@@ -41,6 +43,12 @@ class WorkplaceComposerAttachmentExtension implements ComposerAttachmentPlugin {
   late final _createIntentInteractor = CreateDriveIntentInteractor(_repository);
   late final _exchangeTokenInteractor = ExchangeDriveTokenInteractor(
     _repository,
+  );
+
+  // TODO(TF-4713): wire into _fetchIntent once exchangeToken returns
+  // WorkplaceTokenSession instead of String — see phase-01 plan doc.
+  late final WorkplaceTokenStore _tokenStore = InMemoryWorkplaceTokenStore(
+    exchange: (platformUrl, oidcIdToken) => throw UnimplementedError(),
   );
 
   WorkplaceComposerAttachmentExtension({
