@@ -1,6 +1,7 @@
 import '../entity/workplace_action_config.dart';
 import '../entity/workplace_intent.dart';
 import '../entity/workplace_theme.dart';
+import '../entity/workplace_token_session.dart';
 
 abstract class WorkplaceRepository {
   Future<WorkplaceIntent> createIntent({
@@ -11,4 +12,5 @@ abstract class WorkplaceRepository {
     required WorkplaceTheme theme,
   });
   Future<String> exchangeToken(Uri platformUrl, String oidcIdToken);
+  Future<WorkplaceTokenSession> refreshToken(Uri platformUrl, WorkplaceTokenSession current);
 }

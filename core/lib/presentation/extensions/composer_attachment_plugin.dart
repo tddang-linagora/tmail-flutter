@@ -14,4 +14,7 @@ abstract class ComposerAttachmentPlugin {
     BuildContext context, {
     required ImagePaths imagePaths,
   });
+
+  /// Releases whatever a registry rebuild would otherwise orphan.
+  void dispose() {}
 }

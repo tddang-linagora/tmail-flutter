@@ -12,6 +12,7 @@ import '../workplace_dio.dart';
 import '../../domain/entity/workplace_action_config.dart';
 import '../../domain/entity/workplace_intent.dart';
 import '../../domain/entity/workplace_theme.dart';
+import '../../domain/entity/workplace_token_session.dart';
 
 class WorkplaceDataSourceImpl implements WorkplaceDataSource {
   WorkplaceDataSourceImpl();
@@ -121,5 +122,11 @@ class WorkplaceDataSourceImpl implements WorkplaceDataSource {
     final data = WorkplaceExchangeTokenResponse.fromJson(_asJsonMap(response.data));
     final accessToken = data.accessToken;
     return accessToken;
+  }
+
+  @override
+  Future<WorkplaceTokenSession> refreshToken(Uri platformUrl, WorkplaceTokenSession current) {
+    // TODO: POST auth/access_token, form-encoded, grant_type=refresh_token.
+    throw UnimplementedError();
   }
 }

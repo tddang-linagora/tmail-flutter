@@ -8,6 +8,12 @@ class ComposerAttachmentExtensionRegistry {
 
   const ComposerAttachmentExtensionRegistry(this.extensions);
 
+  void dispose() {
+    for (final extension in extensions) {
+      extension.dispose();
+    }
+  }
+
   List<Widget> buildToolbarButtons(
     BuildContext context, {
     required String composerId,
