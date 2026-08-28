@@ -8,13 +8,23 @@ typedef WorkplaceTokenExchange = Future<WorkplaceTokenSession> Function(
   String oidcIdToken,
 );
 
+/// Refreshes a session's access token; injected for the same reason.
+typedef WorkplaceTokenRefresh = Future<WorkplaceTokenSession> Function(
+  Uri platformUrl,
+  WorkplaceTokenSession current,
+);
+
 /// RAM-only store, one session + one in-flight exchange. Stub — logic lands
 /// in a follow-up.
 class InMemoryWorkplaceTokenStore implements WorkplaceTokenStore {
-  InMemoryWorkplaceTokenStore({required WorkplaceTokenExchange exchange})
-      : _exchange = exchange;
+  InMemoryWorkplaceTokenStore({
+    required WorkplaceTokenExchange exchange,
+    required WorkplaceTokenRefresh refresh,
+  })  : _exchange = exchange,
+        _refresh = refresh;
 
   final WorkplaceTokenExchange _exchange;
+  final WorkplaceTokenRefresh _refresh;
 
   @override
   Future<WorkplaceTokenSession> obtain({
@@ -34,6 +44,16 @@ class InMemoryWorkplaceTokenStore implements WorkplaceTokenStore {
   @override
   void clear() {
     // TODO: drop the cached session and any in-flight exchange.
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<WorkplaceTokenSession> recoverAfterUnauthorized({
+    required String usedAccessToken,
+    required Uri platformUrl,
+    required String oidcIdToken,
+  }) {
+    // TODO: cache-coherence check, join in-flight, refresh, or fall back to exchange.
     throw UnimplementedError();
   }
 }

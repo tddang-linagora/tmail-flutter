@@ -1,7 +1,7 @@
 import 'package:workplace/domain/entity/workplace_token_session.dart';
 
 /// Drive access token lifecycle for one platform URL: cache, single-flight
-/// exchange, invalidation. recoverAfterUnauthorized lands in Phase 2.
+/// exchange, invalidation, and 401 recovery.
 abstract class WorkplaceTokenStore {
   /// Cached session for [platformUrl], or joins/starts an exchange.
   Future<WorkplaceTokenSession> obtain({
@@ -14,4 +14,11 @@ abstract class WorkplaceTokenStore {
 
   /// Drops the cached session and any in-flight exchange.
   void clear();
+
+  /// Recovers from a 401 on [usedAccessToken]: refresh, or fall back to exchange.
+  Future<WorkplaceTokenSession> recoverAfterUnauthorized({
+    required String usedAccessToken,
+    required Uri platformUrl,
+    required String oidcIdToken,
+  });
 }

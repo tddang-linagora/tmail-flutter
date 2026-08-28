@@ -3,6 +3,7 @@ import 'package:core/presentation/extensions/composer_toolbar_button_style.dart'
 import 'package:core/presentation/resources/image_paths.dart';
 import 'package:core/presentation/state/failure.dart';
 import 'package:core/utils/app_logger.dart';
+import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:workplace/data/datasource_impl/workplace_datasource_impl.dart';
@@ -45,6 +46,7 @@ class WorkplaceComposerAttachmentExtension implements ComposerAttachmentPlugin {
 
   late final WorkplaceTokenStore _tokenStore = InMemoryWorkplaceTokenStore(
     exchange: (platformUrl, oidcIdToken) => throw UnimplementedError(),
+    refresh: _repository.refreshToken,
   );
 
   WorkplaceComposerAttachmentExtension({
@@ -85,12 +87,29 @@ class WorkplaceComposerAttachmentExtension implements ComposerAttachmentPlugin {
       platformUrl: platformUrl,
       oidcIdToken: oidcToken,
     );
-    return _createIntent(
-      platformUrl,
-      session.accessToken,
-      filePickerConfig: filePickerConfig,
-    );
+    try {
+      return await _createIntent(
+        platformUrl,
+        session.accessToken,
+        filePickerConfig: filePickerConfig,
+      );
+    } catch (e) {
+      if (!_isUnauthorized(e)) rethrow;
+      final fresh = await _tokenStore.recoverAfterUnauthorized(
+        usedAccessToken: session.accessToken,
+        platformUrl: platformUrl,
+        oidcIdToken: oidcToken,
+      );
+      return _createIntent(
+        platformUrl,
+        fresh.accessToken,
+        filePickerConfig: filePickerConfig,
+      );
+    }
   }
+
+  bool _isUnauthorized(Object error) =>
+      error is DioException && error.response?.statusCode == 401;
 
   Future<WorkplaceIntent> _createIntent(
     Uri platformUrl,

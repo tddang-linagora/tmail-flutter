@@ -18,20 +18,3 @@ class CreateWorkplaceIntentFailure extends FeatureFailure {
   @override
   List<Object?> get props => [exception];
 }
-
-class ExchangingWorkplaceToken extends LoadingState {}
-
-class ExchangeWorkplaceTokenSuccess extends UIState {
-  final String accessToken;
-  ExchangeWorkplaceTokenSuccess(this.accessToken);
-
-  @override
-  List<Object?> get props => [accessToken];
-}
-
-class ExchangeWorkplaceTokenFailure extends FeatureFailure {
-  ExchangeWorkplaceTokenFailure({super.exception});
-
-  @override
-  List<Object?> get props => [exception];
-}
