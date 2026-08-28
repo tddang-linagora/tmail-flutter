@@ -1,10 +1,7 @@
 import 'package:equatable/equatable.dart';
 
-/// A Drive access token plus what's needed to recover it once it goes stale.
-///
-/// Neither `/auth/token_exchange` nor `/auth/access_token` returns
-/// `expires_in`, so this carries no expiry — staleness is only known
-/// reactively, from a 401 on `/intents`.
+/// Drive access token; no expiry, Drive never returns expires_in — staleness
+/// is only known reactively.
 class WorkplaceTokenSession with EquatableMixin {
   final String accessToken;
   final String? refreshToken;
@@ -18,8 +15,7 @@ class WorkplaceTokenSession with EquatableMixin {
     this.clientSecret,
   });
 
-  /// True only when the refresh grant has everything it needs. False leaves
-  /// recovery to fall back to a full re-exchange.
+  /// True when the refresh grant has everything it needs.
   bool get canRefresh =>
       (refreshToken?.isNotEmpty ?? false) &&
       (clientId?.isNotEmpty ?? false) &&

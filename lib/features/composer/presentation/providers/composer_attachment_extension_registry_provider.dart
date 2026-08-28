@@ -16,28 +16,30 @@ part 'composer_attachment_extension_registry_provider.g.dart';
 @Riverpod(keepAlive: true)
 ComposerAttachmentExtensionRegistry composerAttachmentExtensionRegistry(Ref ref) {
   final uriNotifier = ref.watch(driveAttachmentUriValueProvider);
-  return ComposerAttachmentExtensionRegistry([
+  final registry = ComposerAttachmentExtensionRegistry([
     WorkplaceComposerAttachmentExtension(
       workplaceUri: uriNotifier,
-      // Read at picker-open time, so it's always the current session's answer.
-      uploadFromUrlSupported: () {
-        final dashboard = getBinding<MailboxDashBoardController>();
-        final jmapUrl = dashboard?.dynamicUrlInterceptors.jmapUrl;
-        if (jmapUrl == null || jmapUrl.isEmpty) return false;
-        return dashboard?.sessionCurrent?.isUploadFromUrlSupported(
-              dashboard.accountId.value,
-              jmapUrl: jmapUrl,
-            ) ??
-            false;
-      },
-      oidcTokenGetter: () => getBinding<AuthorizationInterceptors>()?.currentOidcIdToken,
-      maxAttachmentSizeBytesGetter: () =>
-          getBinding<MailboxDashBoardController>()?.maxSizeAttachmentsPerEmail?.value,
-      // Read at picker-open time from the composer that owns the picker.
-      remainingAttachmentCapacityBytesGetter: (composerId) =>
-          getBinding<ComposerController>(tag: composerId)
-              ?.attachmentUploadValidationService
-              .remainingCapacityBytes,
+      getters: (
+        // Read at picker-open time, so it's always the current session's answer.
+        uploadFromUrlSupported: () {
+          final dashboard = getBinding<MailboxDashBoardController>();
+          final jmapUrl = dashboard?.dynamicUrlInterceptors.jmapUrl;
+          if (jmapUrl == null || jmapUrl.isEmpty) return false;
+          return dashboard?.sessionCurrent?.isUploadFromUrlSupported(
+                dashboard.accountId.value,
+                jmapUrl: jmapUrl,
+              ) ??
+              false;
+        },
+        oidcTokenGetter: () => getBinding<AuthorizationInterceptors>()?.currentOidcIdToken,
+        maxAttachmentSizeBytesGetter: () =>
+            getBinding<MailboxDashBoardController>()?.maxSizeAttachmentsPerEmail?.value,
+        // Read at picker-open time from the composer that owns the picker.
+        remainingAttachmentCapacityBytesGetter: (composerId) =>
+            getBinding<ComposerController>(tag: composerId)
+                ?.attachmentUploadValidationService
+                .remainingCapacityBytes,
+      ),
       onPickState: (composerId, state) async {
         if (state is DrivePickResult) {
           final composer = getBinding<ComposerController>(tag: composerId);
@@ -57,4 +59,6 @@ ComposerAttachmentExtensionRegistry composerAttachmentExtensionRegistry(Ref ref)
       },
     ),
   ]);
+  ref.onDispose(registry.dispose);
+  return registry;
 }

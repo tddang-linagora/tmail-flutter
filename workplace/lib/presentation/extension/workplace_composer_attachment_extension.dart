@@ -19,86 +19,77 @@ import 'package:workplace/presentation/model/drive_pick_state.dart';
 import 'package:workplace/presentation/model/drive_picker_session.dart';
 import 'package:workplace/domain/state/workplace_intent_state.dart';
 import 'package:workplace/domain/usecase/create_drive_intent_interactor.dart';
-import 'package:workplace/domain/usecase/exchange_drive_token_interactor.dart';
 import 'package:workplace/presentation/widget/drive_attachment_context_menu_tile.dart';
 import 'package:workplace/presentation/widget/drive_attachment_picker_button.dart';
 
 typedef OnDrivePickStateChanged =
     Future<void> Function(String? composerId, DrivePickState state);
 
+/// The composer-side inputs the extension reads at picker-open time — bundled
+/// so the constructor stays under the 5-arg limit.
+typedef WorkplaceAttachmentGetters = ({
+  ValueGetter<bool> uploadFromUrlSupported,
+  String? Function() oidcTokenGetter,
+  num? Function() maxAttachmentSizeBytesGetter,
+  num? Function(String? composerId) remainingAttachmentCapacityBytesGetter,
+});
+
 class WorkplaceComposerAttachmentExtension implements ComposerAttachmentPlugin {
   final ValueListenable<Uri?> workplaceUri;
-
-  /// Read when the picker opens, so the JMAP capability is always current.
-  final ValueGetter<bool> uploadFromUrlSupported;
-  final String? Function() oidcTokenGetter;
-  final num? Function() maxAttachmentSizeBytesGetter;
-
-  /// Per-composer: the remainder depends on what that composer already holds.
-  final num? Function(String? composerId) remainingAttachmentCapacityBytesGetter;
+  final WorkplaceAttachmentGetters getters;
   final OnDrivePickStateChanged? onPickState;
 
   late final _dataSource = WorkplaceDataSourceImpl();
   late final _repository = WorkplaceRepositoryImpl(_dataSource);
   late final _createIntentInteractor = CreateDriveIntentInteractor(_repository);
-  late final _exchangeTokenInteractor = ExchangeDriveTokenInteractor(
-    _repository,
-  );
 
-  // TODO(TF-4713): wire into _fetchIntent once exchangeToken returns
-  // WorkplaceTokenSession instead of String — see phase-01 plan doc.
   late final WorkplaceTokenStore _tokenStore = InMemoryWorkplaceTokenStore(
     exchange: (platformUrl, oidcIdToken) => throw UnimplementedError(),
   );
 
   WorkplaceComposerAttachmentExtension({
     required this.workplaceUri,
-    required this.uploadFromUrlSupported,
-    required this.oidcTokenGetter,
-    required this.maxAttachmentSizeBytesGetter,
-    required this.remainingAttachmentCapacityBytesGetter,
+    required this.getters,
     this.onPickState,
-  });
+  }) {
+    _watchUri();
+  }
+
+  void _watchUri() {
+    workplaceUri.addListener(_onUriChanged);
+    _onUriChanged();
+  }
+
+  void _onUriChanged() {
+    final uri = workplaceUri.value;
+    if (uri == null) {
+      _tokenStore.clear();
+    } else {
+      _tokenStore.prime(platformUrl: uri, oidcIdToken: getters.oidcTokenGetter());
+    }
+  }
+
+  @override
+  void dispose() {
+    workplaceUri.removeListener(_onUriChanged);
+    _tokenStore.clear();
+  }
 
   Future<WorkplaceIntent> _fetchIntent(
     Uri platformUrl, {
     required WorkplaceFilePickerConfigRequest filePickerConfig,
   }) async {
-    final oidcToken = oidcTokenGetter();
+    final oidcToken = getters.oidcTokenGetter();
     if (oidcToken == null) throw StateError('OIDC token is unavailable');
-    final accessToken = await _exchangeAccessToken(platformUrl, oidcToken);
-    if (accessToken == null) throw StateError('Drive access token exchange failed');
+    final session = await _tokenStore.obtain(
+      platformUrl: platformUrl,
+      oidcIdToken: oidcToken,
+    );
     return _createIntent(
       platformUrl,
-      accessToken,
+      session.accessToken,
       filePickerConfig: filePickerConfig,
     );
-  }
-
-  Future<String?> _exchangeAccessToken(
-    Uri platformUrl,
-    String oidcToken,
-  ) async {
-    String? accessToken;
-    await for (final either in _exchangeTokenInteractor.execute(
-      platformUrl,
-      oidcToken,
-    )) {
-      either.fold(
-        (failure) {
-          logWarning(
-            'WorkplaceComposerAttachmentExtension::_exchangeAccessToken failed: $failure',
-          );
-          throw failure is FeatureFailure ? failure.exception : WorkplaceExchangeTokenException();
-        },
-        (success) {
-          if (success is ExchangeWorkplaceTokenSuccess) {
-            accessToken = success.accessToken;
-          }
-        },
-      );
-    }
-    return accessToken;
   }
 
   Future<WorkplaceIntent> _createIntent(
@@ -183,10 +174,10 @@ class WorkplaceComposerAttachmentExtension implements ComposerAttachmentPlugin {
   }
 
   DrivePickerSession _sessionFor(Uri uri, String? composerId) => DrivePickerSession(
-        uploadFromUrlSupported: uploadFromUrlSupported,
-        maxAttachmentSizeBytesGetter: maxAttachmentSizeBytesGetter,
+        uploadFromUrlSupported: getters.uploadFromUrlSupported,
+        maxAttachmentSizeBytesGetter: getters.maxAttachmentSizeBytesGetter,
         remainingAttachmentCapacityBytesGetter: () =>
-            remainingAttachmentCapacityBytesGetter(composerId),
+            getters.remainingAttachmentCapacityBytesGetter(composerId),
         onFetchIntent: ({required filePickerConfig}) => _fetchIntent(
           uri,
           filePickerConfig: filePickerConfig,

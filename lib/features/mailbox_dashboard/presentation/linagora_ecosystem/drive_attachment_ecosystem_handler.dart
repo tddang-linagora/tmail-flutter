@@ -1,3 +1,4 @@
+import 'package:tmail_ui_user/features/composer/presentation/providers/composer_attachment_extension_registry_provider.dart';
 import 'package:tmail_ui_user/features/mailbox_dashboard/domain/linagora_ecosystem/linagora_ecosystem.dart';
 import 'package:tmail_ui_user/features/mailbox_dashboard/domain/linagora_ecosystem/linagora_ecosystem_handler.dart';
 import 'package:tmail_ui_user/main/providers/app_provider_container.dart';
@@ -9,6 +10,9 @@ class DriveAttachmentEcosystemHandler implements LinagoraEcosystemHandler {
     appProviderContainer
         .read(driveAttachmentEnabledProvider.notifier)
         .setEnabled(ecosystem.driveAttachmentConfig?.enabled);
+    // Warms the registry now so the token store's prefetch fires at session
+    // load, not at first composer open.
+    appProviderContainer.read(composerAttachmentExtensionRegistryProvider);
   }
 
   @override
