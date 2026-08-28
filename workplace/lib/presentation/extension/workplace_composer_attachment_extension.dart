@@ -95,6 +95,7 @@ class WorkplaceComposerAttachmentExtension implements ComposerAttachmentPlugin {
       );
     } catch (e) {
       if (!_isUnauthorized(e)) rethrow;
+      // A recover failure propagates like any other _fetchIntent failure — no extra catch.
       final fresh = await _tokenStore.recoverAfterUnauthorized(
         usedAccessToken: session.accessToken,
         platformUrl: platformUrl,

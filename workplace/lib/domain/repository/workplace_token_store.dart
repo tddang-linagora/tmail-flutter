@@ -3,7 +3,8 @@ import 'package:workplace/domain/entity/workplace_token_session.dart';
 /// Drive access token lifecycle for one platform URL: cache, single-flight
 /// exchange, invalidation, and 401 recovery.
 abstract class WorkplaceTokenStore {
-  /// Cached session for [platformUrl], or joins/starts an exchange.
+  /// Cached session for [platformUrl]; joins prime()'s in-flight exchange if
+  /// one is running, or starts a fresh one if priming failed or never ran.
   Future<WorkplaceTokenSession> obtain({
     required Uri platformUrl,
     required String oidcIdToken,

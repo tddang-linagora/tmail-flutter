@@ -380,11 +380,14 @@ case above, not a double-click.
 ### Handle (they happen in the product)
 
 1. **Prefetch in flight, user taps.** `obtain()` joins `_inFlight`.
-2. **Two composers tap with a cold cache.** Same join. One exchange, two intents.
-3. **Two composers 401 on the same access token.** Join one recover. Each
+2. **Prefetch already failed (or never started) before the tap.** `obtain()`
+   sees no cached session and no `_inFlight`, starts a fresh exchange — same
+   cost as today, but only on that path.
+3. **Two composers tap with a cold cache.** Same join. One exchange, two intents.
+4. **Two composers 401 on the same access token.** Join one recover. Each
    retries its own `/intents`. If one recover already finished, the other
    reads the newer cached access token.
-4. **URI goes null then non-null while a request is in flight** (logout,
+5. **URI goes null then non-null while a request is in flight** (logout,
    account switch, preference toggle). `clear()` drops the cache. A late
    HTTP completion must not write over a newer session: only cache the result
    if that Future is still the current `_inFlight` (`identical`, not a

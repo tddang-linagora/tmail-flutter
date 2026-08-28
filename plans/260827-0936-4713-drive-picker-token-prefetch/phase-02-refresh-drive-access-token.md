@@ -18,7 +18,10 @@ Refresh is **only** a reaction to `POST /intents` HTTP 401. Prefetch and
 - Functional: 401 → one recover → one retry of **that** `/intents`. Recover
   prefers `POST /auth/access_token`; falls back to `token_exchange`. Two
   composers 401 on the same access token share one recover HTTP. A second 401
-  after the retry surfaces. Timeouts / 500 / 403 do not retry.
+  after the retry surfaces. Timeouts / 500 / 403 do not retry. A recovery
+  failure (refresh and the fallback exchange both throw) is not specially
+  caught — it propagates out of `_fetchIntent` unchanged, same as any other
+  failure. No new user-visible error path.
 - Non-functional: no interceptor; no `RefreshDriveTokenInteractor`; no
   generation / `force`; `lib/` grep gate from Phase 1 still holds.
 
@@ -49,6 +52,7 @@ recoverAfterUnauthorized(usedAccessToken):
 | Two composers 401 on T together | one recover HTTP, two retry `/intents` |
 | A recovered to T2; B 401 on T afterwards | zero recover HTTP, B retries `/intents` with T2 |
 | Retry `/intents` also 401 | error surfaces; no third attempt |
+| `recoverAfterUnauthorized` itself throws | propagates out of `_fetchIntent` — existing modal failure path |
 
 Do **not** call `obtain()` from recover — that cache-hits the dead token.
 
