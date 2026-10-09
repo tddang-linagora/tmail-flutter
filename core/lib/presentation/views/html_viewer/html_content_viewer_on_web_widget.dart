@@ -4,12 +4,13 @@ import 'dart:math' as math;
 
 import 'package:core/presentation/constants/constants_ui.dart';
 import 'package:core/presentation/extensions/color_extension.dart';
+import 'package:core/presentation/views/html_viewer/html_content_viewer_configuration.dart';
 import 'package:core/presentation/views/html_viewer/html_iframe_widget.dart';
+import 'package:core/presentation/views/html_viewer/html_viewer_document_builder.dart';
 import 'package:core/presentation/views/shortcut/key_shortcut.dart';
 import 'package:core/presentation/views/tooltip/iframe_tooltip_overlay.dart';
 import 'package:core/utils/app_logger.dart';
 import 'package:core/utils/html/html_interaction.dart';
-import 'package:core/utils/html/html_template.dart';
 import 'package:core/utils/html/html_utils.dart';
 import 'package:core/utils/platform_info.dart';
 import 'package:flutter/cupertino.dart';
@@ -516,21 +517,7 @@ class _HtmlContentViewerOnWebState extends State<HtmlContentViewerOnWeb>
       </script>
     ''';
 
-    final processedContent = widget.enableQuoteToggle
-        ? HtmlUtils.addQuoteToggle(content)
-        : content;
-
-    final combinedCss = [
-      if (widget.enableQuoteToggle) HtmlUtils.quoteToggleStyle,
-      if (widget.disableScrolling) HtmlTemplate.disableScrollingStyleCSS,
-    ].join();
-
-    final combinedScripts = [
-      webViewActionScripts,
-      HtmlInteraction.scriptsDisableZoom,
-      HtmlInteraction.scriptsHandleLazyLoadingBackgroundImage,
-      HtmlInteraction.generateNormalizeImageScript(widget.widthContent),
-      if (widget.enableQuoteToggle) HtmlUtils.quoteToggleScript,
+    final listenerScripts = [
       if (widget.scrollController != null)
         PlatformInfo.isWebTouchDevice
             ? HtmlInteraction.scriptsTouchEventListener(
@@ -550,19 +537,34 @@ class _HtmlContentViewerOnWebState extends State<HtmlContentViewerOnWeb>
         HtmlInteraction.scriptsHandleIframeLinkHoverListener(_createdViewId),
     ].join();
 
-    final htmlTemplate = HtmlUtils.generateHtmlDocument(
-      content: processedContent,
-      minHeight: minHeight,
-      minWidth: widget.htmlContentMinWidth,
-      styleCSS: combinedCss,
-      javaScripts: combinedScripts,
-      direction: widget.direction,
-      contentPadding: widget.contentPadding,
-      useDefaultFontStyle: widget.useDefaultFontStyle,
-      fontSize: widget.fontSize,
+    return HtmlViewerDocumentBuilder.buildWeb(
+      HtmlWebViewerDocumentInput(
+        content: HtmlContentViewerContent(
+          html: content,
+          direction: widget.direction,
+        ),
+        typography: HtmlContentViewerTypography(
+          fontStyle: widget.useDefaultFontStyle
+              ? HtmlContentViewerFontStyle.defaultStyle
+              : HtmlContentViewerFontStyle.html,
+          textSize: HtmlContentViewerLength(widget.fontSize),
+        ),
+        behavior: HtmlContentViewerBehavior(features: {
+          if (widget.enableQuoteToggle) HtmlContentViewerFeature.quoteToggle,
+          if (widget.disableScrolling) HtmlContentViewerFeature.disableScrolling,
+        }),
+        dimensions: HtmlWebViewerDimensions(
+          widthContent: widget.widthContent,
+          minHeight: minHeight,
+          minWidth: widget.htmlContentMinWidth,
+          contentPadding: widget.contentPadding,
+        ),
+      ),
+      scripts: HtmlWebViewerScripts(
+        leading: webViewActionScripts,
+        trailing: listenerScripts,
+      ),
     );
-
-    return htmlTemplate;
   }
 
   void _setUpWeb() {
