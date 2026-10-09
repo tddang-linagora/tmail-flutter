@@ -10,6 +10,7 @@ const cases: RenderCase[] = JSON.parse(readFileSync(path.join(exportDir, 'cases.
 const svg = (w: number, h: number) =>
   `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}"><rect width="100%" height="100%" fill="#c8c8c8"/></svg>`;
 const PLACEHOLDER = /^https:\/\/fixture\.invalid\/(?:img|cid|est)\/(\d+)x(\d+)/;
+const MAX_HEIGHT = 20000;
 
 for (const c of cases) {
   test(`${c.target}/${c.name}`, { tag: `@${c.engine}` }, async ({ page }) => {
@@ -49,10 +50,13 @@ for (const c of cases) {
     await page.goto(url, { waitUntil: 'load' });
     await settle();
     const measured = await contentHeight();
-    await page.setViewportSize({ width: c.width, height: Math.min(measured + 400, 20000) });
+    await page.setViewportSize({ width: c.width, height: Math.min(measured + 400, MAX_HEIGHT) });
     await page.reload({ waitUntil: 'load' });
     await settle();
-    const height = Math.min(Math.max(await contentHeight(), 200), 20000);
+    const full = await contentHeight();
+    if (full > MAX_HEIGHT)
+      test.info().annotations.push({ type: 'truncated', description: `${full}px, compared up to ${MAX_HEIGHT}px` });
+    const height = Math.min(Math.max(full, 200), MAX_HEIGHT);
     await expect(page).toHaveScreenshot(`${c.target}/${c.name}.png`, {
       clip: { x: 0, y: 0, width: c.width, height },
     });

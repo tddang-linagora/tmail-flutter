@@ -4,6 +4,8 @@ on:
       - "core/lib/presentation/utils/html_transformer/**"
       - "core/lib/presentation/views/html_viewer/**"
       - "core/lib/utils/html/**"
+      - "core/lib/presentation/constants/**"
+      - "pubspec.lock"
       - "core/html_render_golden/**"
       - "core/test/html_render_golden/**"
       - ".github/workflows/html-render-golden.yaml"
