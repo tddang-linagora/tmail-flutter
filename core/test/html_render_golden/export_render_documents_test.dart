@@ -35,9 +35,9 @@ void main() {
       final cases = <Map<String, Object>>[];
       for (final file in emails) {
         final name = file.uri.pathSegments.last.split('.').first;
-        final raw = file.readAsStringSync();
+        final raw = utf8.decode(gzip.decode(file.readAsBytesSync()));
         for (final target in RenderTarget.values) {
-          final content = await _transformed(raw, file.path.endsWith('.txt'), target);
+          final content = await _transformed(raw, file.path.endsWith('.txt.gz'), target);
           File('$out/${target.label}/$name.html')
             ..createSync(recursive: true)
             ..writeAsStringSync(target.buildDocument(content));
@@ -59,7 +59,7 @@ void main() {
 List<File> _fixtureEmails() => Directory('test/html_render_golden/emails')
     .listSync()
     .whereType<File>()
-    .where((f) => f.path.endsWith('.html') || f.path.endsWith('.txt'))
+    .where((f) => f.path.endsWith('.html.gz') || f.path.endsWith('.txt.gz'))
     .toList()
   ..sort((a, b) => a.path.compareTo(b.path));
 
