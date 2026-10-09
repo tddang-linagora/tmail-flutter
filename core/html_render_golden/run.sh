@@ -15,4 +15,4 @@ rm -rf "$here/.export"
 
 docker run --rm --platform linux/amd64 --ipc=host \
   -v "$core:/core" -w /core/html_render_golden \
-  "$image" bash -c "npm ci && npx playwright test $*"
+  "$image" bash -c 'npm install --no-package-lock --no-audit --no-fund && npx playwright test "$@"' _ "$@"

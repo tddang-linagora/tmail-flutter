@@ -1,4 +1,3 @@
 # Fixture emails are gzipped to keep PR line counts small. Readable local diff: git config diff.gzip.textconv "gzip -dc"
 core/test/html_render_golden/emails/*.gz binary diff=gzip
 core/html_render_golden/goldens/** linguist-generated=true binary
-core/html_render_golden/package-lock.json linguist-generated=true
