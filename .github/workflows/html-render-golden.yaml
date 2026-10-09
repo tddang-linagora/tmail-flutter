@@ -1,0 +1,56 @@
+on:
+  pull_request:
+    paths:
+      - "core/lib/presentation/utils/html_transformer/**"
+      - "core/lib/presentation/views/html_viewer/**"
+      - "core/lib/utils/html/**"
+      - "core/test/html_render_golden/**"
+      - ".github/workflows/html-render-golden.yaml"
+  workflow_dispatch:
+    inputs:
+      update:
+        description: "Regenerate goldens and upload them as an artifact"
+        type: boolean
+        default: false
+
+name: HTML email render goldens
+
+permissions:
+  contents: read
+
+env:
+  FLUTTER_VERSION: 3.38.9
+
+jobs:
+  render-golden:
+    # Fork-only experiment: never runs on linagora/tmail-flutter.
+    if: github.repository == 'tddang-linagora/tmail-flutter'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: "stable"
+          cache: true
+          cache-key: "deps-${{ hashFiles('pubspec.lock') }}"
+          cache-path: ${{ runner.tool_cache }}/flutter
+      - name: Run prebuild
+        run: ./scripts/prebuild.sh
+      - name: Render goldens
+        run: bash core/test/html_render_golden/run.sh ${{ inputs.update && '--update-snapshots' || '' }}
+      - name: Upload regenerated goldens
+        if: inputs.update
+        uses: actions/upload-artifact@v4
+        with:
+          name: html-render-goldens
+          path: core/test/html_render_golden/goldens
+      - name: Upload diff report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: html-render-golden-report
+          path: |
+            core/test/html_render_golden/playwright-report
+            core/test/html_render_golden/test-results
