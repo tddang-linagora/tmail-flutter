@@ -10,7 +10,7 @@ export default defineConfig({
     toHaveScreenshot: { animations: 'disabled', caret: 'hide', maxDiffPixelRatio: 0 },
   },
   projects: [
-    { name: 'chromium', use: { ...devices['Desktop Chrome'], deviceScaleFactor: 1 } },
-    { name: 'webkit', use: { ...devices['Desktop Safari'], deviceScaleFactor: 1 } },
+    { name: 'chromium', grep: /@chromium/, use: { ...devices['Desktop Chrome'], deviceScaleFactor: 1 } },
+    { name: 'webkit', grep: /@webkit/, use: { ...devices['Desktop Safari'], deviceScaleFactor: 1 } },
   ],
 });

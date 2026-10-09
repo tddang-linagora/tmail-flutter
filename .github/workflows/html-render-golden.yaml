@@ -4,6 +4,7 @@ on:
       - "core/lib/presentation/utils/html_transformer/**"
       - "core/lib/presentation/views/html_viewer/**"
       - "core/lib/utils/html/**"
+      - "core/html_render_golden/**"
       - "core/test/html_render_golden/**"
       - ".github/workflows/html-render-golden.yaml"
   workflow_dispatch:
@@ -39,18 +40,18 @@ jobs:
       - name: Run prebuild
         run: ./scripts/prebuild.sh
       - name: Render goldens
-        run: bash core/test/html_render_golden/run.sh ${{ inputs.update && '--update-snapshots' || '' }}
+        run: bash core/html_render_golden/run.sh ${{ inputs.update && '--update-snapshots' || '' }}
       - name: Upload regenerated goldens
         if: inputs.update
         uses: actions/upload-artifact@v4
         with:
           name: html-render-goldens
-          path: core/test/html_render_golden/goldens
+          path: core/html_render_golden/goldens
       - name: Upload diff report
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: html-render-golden-report
           path: |
-            core/test/html_render_golden/playwright-report
-            core/test/html_render_golden/test-results
+            core/html_render_golden/playwright-report
+            core/html_render_golden/test-results

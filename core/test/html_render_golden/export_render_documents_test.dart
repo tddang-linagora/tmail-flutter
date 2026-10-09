@@ -52,7 +52,7 @@ void main() {
       await _copyWebFonts(out);
       File('$out/cases.json').writeAsStringSync(jsonEncode(cases));
     },
-    skip: _exportDir == null ? 'set HTML_RENDER_EXPORT_DIR to export' : false,
+    skip: _exportDir == null ? 'export step of the pixel goldens; run bash core/html_render_golden/run.sh' : false,
   );
 }
 

@@ -12,8 +12,7 @@ const svg = (w: number, h: number) =>
 const PLACEHOLDER = /^https:\/\/fixture\.invalid\/(?:img|cid|est)\/(\d+)x(\d+)/;
 
 for (const c of cases) {
-  test(`${c.target}/${c.name}`, async ({ page, browserName }) => {
-    test.skip(browserName !== c.engine, `${c.target} renders on ${c.engine}`);
+  test(`${c.target}/${c.name}`, { tag: `@${c.engine}` }, async ({ page }) => {
     // Offline: only the local page + fonts are served; images are gray SVGs.
     await page.route('**/*', (route) => {
       const url = route.request().url();

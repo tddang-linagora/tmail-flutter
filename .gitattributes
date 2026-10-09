@@ -1,0 +1,3 @@
+core/test/html_render_golden/emails/** linguist-generated=true
+core/html_render_golden/goldens/** linguist-generated=true binary
+core/html_render_golden/package-lock.json linguist-generated=true
