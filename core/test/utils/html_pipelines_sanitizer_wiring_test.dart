@@ -32,6 +32,8 @@ void main() {
     'reply forward empty': (TransformConfiguration.forReplyForwardEmptyEmail, Wiring.passesThrough),
     'composer signature': (TransformConfiguration.forComposerSignature, Wiring.passesThrough),
     'print': (TransformConfiguration.forPrintEmail, Wiring.stripsStyles),
+    // Plain text is HTML-escaped as a whole, so no <style> survives.
+    'plain text': (TransformConfiguration.forPlainTextEmail, Wiring.stripsStyles),
   };
 
   // A flat stylesheet and an event handler: every sanitizer version removes

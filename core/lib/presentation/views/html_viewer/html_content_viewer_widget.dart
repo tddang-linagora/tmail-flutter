@@ -2,13 +2,11 @@ import 'dart:async';
 
 import 'package:core/data/constants/constant.dart';
 import 'package:core/presentation/views/html_viewer/html_content_viewer_configuration.dart';
+import 'package:core/presentation/views/html_viewer/html_viewer_document_builder.dart';
 import 'package:core/presentation/views/loading/cupertino_loading_widget.dart';
 import 'package:core/utils/app_logger.dart';
 import 'package:core/utils/external_link_policy.dart';
 import 'package:core/utils/html/html_interaction.dart';
-import 'package:core/utils/html/html_template.dart';
-import 'package:core/utils/html/html_utils.dart';
-import 'package:core/utils/html/mobile_email_responsive_layout_script.dart';
 import 'package:core/utils/platform_info.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
@@ -210,39 +208,12 @@ class HtmlContentViewState extends State<HtmlContentViewer> with AutomaticKeepAl
   void _initialData() {
     _actualHeight = widget.htmlContentMinHeight;
 
-    _htmlData = HtmlUtils.generateHtmlDocument(
-      content: _processedContent,
-      direction: widget.direction,
-      javaScripts: _combinedScripts,
-      styleCSS: _combinedCss,
-      contentPadding: widget.contentPadding,
-      useDefaultFontStyle: widget.useDefaultFontStyle,
-      fontSize: widget.fontSize,
+    _htmlData = HtmlViewerDocumentBuilder.buildNative(
+      configuration: widget.configuration,
+      applyMobileResponsiveLayout: _shouldApplyMobileResponsiveStyle,
+      isAndroid: PlatformInfo.isAndroid,
     );
   }
-
-  String get _processedContent => widget.enableQuoteToggle
-      ? HtmlUtils.addQuoteToggle(widget.contentHtml)
-      : widget.contentHtml;
-
-  String get _combinedCss => [
-    if (widget.enableQuoteToggle) HtmlUtils.quoteToggleStyle,
-    if (widget.disableScrolling) HtmlTemplate.disableScrollingStyleCSS,
-  ].join();
-
-  String get _combinedScripts => [
-    HtmlInteraction.scriptsHandleLazyLoadingBackgroundImage,
-    if (widget.enableQuoteToggle) HtmlUtils.quoteToggleScript,
-    if (widget.initialWidth != null)
-      HtmlInteraction.generateNormalizeImageScript(widget.initialWidth!),
-    if (_shouldApplyMobileResponsiveStyle)
-      MobileEmailResponsiveLayoutScript.generate(
-        contentSizeChangedEventJSChannelName:
-            HtmlInteraction.contentSizeChangedEventJSChannelName,
-      ),
-    if (PlatformInfo.isAndroid)
-      HtmlInteraction.scriptsHandleContentSizeChanged,
-  ].join();
 
   bool get _shouldApplyMobileResponsiveStyle {
     return HtmlContentViewer.shouldApplyMobileResponsiveLayout(
