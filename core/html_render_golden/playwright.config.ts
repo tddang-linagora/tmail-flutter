@@ -4,6 +4,8 @@ export default defineConfig({
   testDir: '.',
   testMatch: 'render.spec.ts',
   snapshotPathTemplate: '{testDir}/goldens/{arg}{ext}',
+  // Browser start-up is slow under amd64 emulation (Apple Silicon); pixels stay exact.
+  timeout: 120_000,
   fullyParallel: true,
   reporter: [['list'], ['html', { open: 'never' }]],
   expect: {
