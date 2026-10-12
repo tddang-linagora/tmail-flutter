@@ -8,6 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'capturing_inappwebview_platform.dart';
 import 'email_content_pipeline.dart';
+import 'fixture_emails.dart';
 import 'render_target.dart';
 
 /// Writes the viewer document of every fixture email, as the app builds it,
@@ -25,25 +26,23 @@ void main() {
     'exports fixture emails as viewer documents',
     (tester) async {
       final out = _exportDir!;
-      final emails = _fixtureEmails();
+      final emails = loadFixtureEmails();
       expect(emails.length, _emailCount, reason: 'fixture set changed; update _emailCount');
 
       final pipeline = EmailContentPipeline();
       final cases = <Map<String, Object>>[];
-      for (final file in emails) {
-        final name = file.uri.pathSegments.last.split('.').first;
-        final raw = utf8.decode(gzip.decode(file.readAsBytesSync()));
+      for (final email in emails) {
         for (final target in RenderTarget.values) {
           final content = (await tester.runAsync(() => pipeline.transform(
-            raw: raw,
-            isPlainText: file.path.endsWith('.txt.gz'),
+            raw: email.raw,
+            isPlainText: email.isPlainText,
             isWeb: target == RenderTarget.web,
           )))!;
-          File('$out/${target.label}/$name.html')
+          File('$out/${target.label}/${email.name}.html')
             ..createSync(recursive: true)
             ..writeAsStringSync(await target.buildDocument(tester, content));
           cases.add({
-            'name': name,
+            'name': email.name,
             'target': target.label,
             'engine': target.engine,
             'width': target.pane,
@@ -58,13 +57,6 @@ void main() {
     skip: _exportDir == null,
   );
 }
-
-List<File> _fixtureEmails() => Directory('test/html_render_golden/emails')
-    .listSync()
-    .whereType<File>()
-    .where((f) => f.path.endsWith('.html.gz') || f.path.endsWith('.txt.gz'))
-    .toList()
-  ..sort((a, b) => a.path.compareTo(b.path));
 
 /// Only the web app serves the design fonts (native viewers do not load them).
 Future<void> _copyWebFonts(String out) async {

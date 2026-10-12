@@ -15,4 +15,13 @@ rm -rf "$here/.export"
 
 docker run --rm --platform linux/amd64 --ipc=host \
   -v "$here:/work" -w /work \
-  "$image" bash -c 'npm install --no-package-lock --no-audit --no-fund && npx playwright test "$@"' _ "$@"
+  "$image" bash -c '
+    set -e
+    apt-get update -qq
+    # Android: Roboto + Noto; iOS stand-in: Liberation (see fontconfig/). optipng recompresses goldens losslessly.
+    apt-get install -y -qq --no-install-recommends fonts-roboto-unhinted fonts-noto-core fonts-noto-mono \
+      fonts-noto-cjk fonts-noto-color-emoji fonts-liberation fonts-liberation2 optipng >/dev/null
+    npm install --no-package-lock --no-audit --no-fund
+    npx playwright test "$@"
+    if [[ " $* " == *" --update-snapshots "* ]]; then find goldens -name "*.png" -print0 | xargs -0 -n 8 -P 4 optipng -quiet -o5; fi
+  ' _ "$@"

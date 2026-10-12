@@ -3,3 +3,6 @@ test-results/
 playwright-report/
 .export/
 package-lock.json
+calibration/playwright-*.json
+calibration/device-*.log
+.calibration/
