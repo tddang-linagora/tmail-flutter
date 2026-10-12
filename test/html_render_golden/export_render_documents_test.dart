@@ -4,55 +4,58 @@ library;
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:core/data/network/dio_client.dart';
-import 'package:core/presentation/utils/html_transformer/html_transform.dart';
-import 'package:core/presentation/utils/html_transformer/transform_configuration.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'capturing_inappwebview_platform.dart';
+import 'email_content_pipeline.dart';
 import 'render_target.dart';
 
 /// Writes the viewer document of every fixture email, as the app builds it,
-/// for the Playwright pixel goldens (see run.sh). Skipped unless
-/// HTML_RENDER_EXPORT_DIR is set.
+/// for the Playwright pixel goldens (see playwright/run.sh). Skipped unless
+/// HTML_RENDER_EXPORT_DIR is set (run bash test/html_render_golden/playwright/run.sh).
 const _emailCount = 37;
 const _webFontPath = 'assets/packages/linagora_design_flutter/assets/fonts';
 
 final _exportDir = Platform.environment['HTML_RENDER_EXPORT_DIR'];
 
-/// The pipeline never downloads: fixtures have no CID map.
-class _OfflineDioClient extends Fake implements DioClient {}
-
-final _transform = HtmlTransform(_OfflineDioClient(), const HtmlEscape());
-
 void main() {
-  test(
+  setUp(CapturingInAppWebViewPlatform.install);
+
+  testWidgets(
     'exports fixture emails as viewer documents',
-    () async {
+    (tester) async {
       final out = _exportDir!;
       final emails = _fixtureEmails();
       expect(emails.length, _emailCount, reason: 'fixture set changed; update _emailCount');
 
+      final pipeline = EmailContentPipeline();
       final cases = <Map<String, Object>>[];
       for (final file in emails) {
         final name = file.uri.pathSegments.last.split('.').first;
         final raw = utf8.decode(gzip.decode(file.readAsBytesSync()));
         for (final target in RenderTarget.values) {
-          final content = await _transformed(raw, file.path.endsWith('.txt.gz'), target);
+          final content = (await tester.runAsync(() => pipeline.transform(
+            raw: raw,
+            isPlainText: file.path.endsWith('.txt.gz'),
+            isWeb: target == RenderTarget.web,
+          )))!;
           File('$out/${target.label}/$name.html')
             ..createSync(recursive: true)
-            ..writeAsStringSync(target.buildDocument(content));
+            ..writeAsStringSync(await target.buildDocument(tester, content));
           cases.add({
             'name': name,
             'target': target.label,
             'engine': target.engine,
             'width': target.pane,
+            'maxHeight': target.maxHeight,
           });
         }
       }
       await _copyWebFonts(out);
       File('$out/cases.json').writeAsStringSync(jsonEncode(cases));
     },
-    skip: _exportDir == null ? 'export step of the pixel goldens; run bash core/html_render_golden/run.sh' : false,
+    timeout: const Timeout(Duration(minutes: 10)),
+    skip: _exportDir == null,
   );
 }
 
@@ -62,22 +65,6 @@ List<File> _fixtureEmails() => Directory('test/html_render_golden/emails')
     .where((f) => f.path.endsWith('.html.gz') || f.path.endsWith('.txt.gz'))
     .toList()
   ..sort((a, b) => a.path.compareTo(b.path));
-
-/// The email body after the app's transform pipeline for [target].
-Future<String> _transformed(String raw, bool isPlainText, RenderTarget target) {
-  if (isPlainText) {
-    return Future.value(_transform.transformToTextPlain(
-      content: raw,
-      transformConfiguration: TransformConfiguration.forPlainTextEmail(),
-    ));
-  }
-  return _transform.transformToHtml(
-    htmlContent: raw,
-    transformConfiguration: target == RenderTarget.web
-        ? TransformConfiguration.forPreviewEmailOnWeb()
-        : TransformConfiguration.forPreviewEmail(),
-  );
-}
 
 /// Only the web app serves the design fonts (native viewers do not load them).
 Future<void> _copyWebFonts(String out) async {

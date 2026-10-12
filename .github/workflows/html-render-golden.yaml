@@ -5,9 +5,11 @@ on:
       - "core/lib/presentation/views/html_viewer/**"
       - "core/lib/utils/html/**"
       - "core/lib/presentation/constants/**"
+      - "core/lib/utils/preview_eml_file_utils.dart"
+      - "lib/features/email/data/local/html_analyzer.dart"
+      - "model/lib/email/**"
       - "pubspec.lock"
-      - "core/html_render_golden/**"
-      - "core/test/html_render_golden/**"
+      - "test/html_render_golden/**"
       - ".github/workflows/html-render-golden.yaml"
   workflow_dispatch:
     inputs:
@@ -42,18 +44,18 @@ jobs:
       - name: Run prebuild
         run: ./scripts/prebuild.sh
       - name: Render goldens
-        run: bash core/html_render_golden/run.sh ${{ inputs.update && '--update-snapshots' || '' }}
+        run: bash test/html_render_golden/playwright/run.sh ${{ inputs.update && '--update-snapshots' || '' }}
       - name: Upload regenerated goldens
         if: inputs.update
         uses: actions/upload-artifact@v4
         with:
           name: html-render-goldens
-          path: core/html_render_golden/goldens
+          path: test/html_render_golden/playwright/goldens
       - name: Upload diff report
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: html-render-golden-report
           path: |
-            core/html_render_golden/playwright-report
-            core/html_render_golden/test-results
+            test/html_render_golden/playwright/playwright-report
+            test/html_render_golden/playwright/test-results
