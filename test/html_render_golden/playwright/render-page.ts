@@ -22,13 +22,14 @@ const iosNoZoomMeta = () =>
     document.head.appendChild(meta);
   });
 
-// Android WebView (flutter_inappwebview defaults): standard/sans/serif = sans-serif (Roboto), fixed = 16px monospace.
+// Android WebView as measured on a Pixel emulator (see calibrate.sh): standard/sans = Roboto,
+// serif = Noto Serif, fixed = a 0.6em-advance monospace (Liberation Mono has the same advances).
 export async function emulateWebViewDefaults(page: Page, target: string) {
   if (target === 'native-ios') await page.addInitScript(iosNoZoomMeta);
   if (target !== 'native-android') return;
   const cdp = await page.context().newCDPSession(page);
   await cdp.send('Page.setFontFamilies', {
-    fontFamilies: { standard: 'Roboto', sansSerif: 'Roboto', serif: 'Roboto', fixed: 'Noto Mono' },
+    fontFamilies: { standard: 'Roboto', sansSerif: 'Roboto', serif: 'Noto Serif', fixed: 'Liberation Mono' },
   });
   await cdp.send('Page.setFontSizes', { fontSizes: { standard: 16, fixed: 16 } });
 }

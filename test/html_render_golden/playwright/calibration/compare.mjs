@@ -7,7 +7,8 @@ import { fileURLToPath } from 'node:url';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const MEDIA = ['maxDeviceWidth480', 'pointerCoarse', 'hoverNone'];
 const ANDROID_PROBES = ['sans-serif', 'serif', 'monospace', 'Arial', 'Helvetica', '"Times New Roman"', 'UnknownFont123'];
-const IOS_PROBES = ['Arial', '"Times New Roman"'];
+// Not probed on iOS: UnknownFont123. An iPhone falls back to Times, WebKitGTK to sans-serif, and Playwright cannot change it.
+const IOS_PROBES = ['sans-serif', 'serif', 'monospace', 'Arial', 'Helvetica', '"Times New Roman"'];
 
 const browser = Object.fromEntries(
   readdirSync(here)
@@ -26,23 +27,31 @@ const deviceLines = (file) =>
 
 const percent = (a, b) => (Math.abs(a - b) / Math.max(a, b, 1)) * 100;
 
+// A missing value (NaN) counts as a difference.
+const farther = (limit) => (x, y) => !(Math.abs(x - y) <= limit);
+const percentOver = (limit) => (x, y) => !(percent(x, y) <= limit);
+const changed = (x, y) => x !== y;
+
+// [label, browser value, device value, differs]
+function checks(android, b, d) {
+  const probes = android ? ANDROID_PROBES : IOS_PROBES;
+  const tolerance = android ? 1 : 2; // DPR 1 rounds glyph advances; iOS Helvetica is not Arial-metric to the pixel
+  return [
+    ...MEDIA.map((k) => [k, b[k], d[k], changed]),
+    ['contentScrollWidth', b.contentScrollWidth, d.contentScrollWidth, percentOver(5)],
+    ['overflowX', b.overflowX, d.overflowX, changed],
+    ['scrollHeight', b.scrollHeight, d.scrollHeight, percentOver(android ? 2 : 5)],
+    ...probes.map((p) => [`probe ${p}`, b.probes[p], d.probes[p], farther(tolerance)]),
+    ...Object.keys(b.heights).map((p) => [`line height ${p}`, b.heights[p], d.heights[p], farther(1)]),
+    ...(android ? [['tinyTextHeight', b.tinyTextHeight, d.tinyTextHeight, farther(0.5)]] : []),
+  ];
+}
+
 function failures(id, b, d) {
   if (d.error) return [`device error: ${d.error}`];
-  const out = [];
-  const android = id.startsWith('native-android/');
-  MEDIA.filter((k) => b[k] !== d[k]).forEach((k) => out.push(`${k}: browser ${b[k]} / device ${d[k]}`));
-  if (b.overflowX !== d.overflowX) out.push(`overflowX: browser ${b.overflowX} / device ${d.overflowX}`);
-  const limit = android ? 2 : 5;
-  if (percent(b.scrollHeight, d.scrollHeight) > limit)
-    out.push(`scrollHeight: browser ${b.scrollHeight} / device ${d.scrollHeight} (> ${limit}%)`);
-  const probes = android ? ANDROID_PROBES : IOS_PROBES;
-  const tolerance = android ? 0.5 : 1;
-  probes
-    .filter((p) => Math.abs(b.probes[p] - d.probes[p]) > tolerance)
-    .forEach((p) => out.push(`probe ${p}: browser ${b.probes[p]} / device ${d.probes[p]}`));
-  if (android && Math.abs(b.tinyTextHeight - d.tinyTextHeight) > 0.5)
-    out.push(`tinyTextHeight: browser ${b.tinyTextHeight} / device ${d.tinyTextHeight}`);
-  return out;
+  return checks(id.startsWith('native-android/'), b, d)
+    .filter(([, x, y, differs]) => differs(x, y))
+    .map(([label, x, y]) => `${label}: browser ${x} / device ${y}`);
 }
 
 let failed = 0;
