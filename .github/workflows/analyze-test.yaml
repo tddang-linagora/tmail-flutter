@@ -90,4 +90,4 @@ jobs:
           node-version: '22'
 
       - name: Test JavaScript
-        run: node --test
+        run: node --test "test/**/*_test.js"
